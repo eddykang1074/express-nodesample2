@@ -7,6 +7,9 @@ var router = express.Router();
 //단뱡향 암호화 패키지 참조
 var bcrypt = require('bcryptjs');
 
+//JSON WEB TOKEN 패키지 참조하기 
+const jwt = require('jsonwebtoken');
+
 //ORM DB객체를 참조합니다.
 var db = require('../models/index.js');
 
@@ -104,12 +107,27 @@ router.post('/login',async(req,res)=>{
         if(result == true){
             //암호가 일치하는 경우 
 
-            //STEP3: jsonwebtoken패키지를 이용해 로그인한 사용자정보를 JWT토큰으로 생성하고
+            //STEP3: jsonwebtoken 패키지를 이용해 로그인한 사용자정보를 JWT토큰으로 생성하고
             //토큰값을 apiResult.data =토큰값을 전달한다. 
 
+            //JWT 토큰안에 담을 실제 로그인 사용자 주요 JSON데이터
+            var memberTokenData = {
+                member_id:member.member_id,
+                email:member.email,
+                name:member.name,
+                profile_img_path:member.profile_img_path,
+                telephone:member.telephone
+            };
 
-            apiResult.code =200;
-            apiResult.data =member;
+            //로그인 사용자 주요정보를 JWT토큰으로 생성한다.
+            //jwt.sign("토큰안에 담을 실제json데이터","토큰생성인증키값",생성옵션(토큰유지시간설정-파기시간,만든이정보));
+            const token = jwt.sign(memberTokenData,process.env.JWT_SECRET,{
+                expiresIn:"6h", //10s,60m,24h
+                issuer:"msoftware"
+            });
+
+            apiResult.code = 200;
+            apiResult.data = token;
             apiResult.result ="Ok";
         }else{
             //암호가 일치하지 않은경우 
@@ -123,6 +141,52 @@ router.post('/login',async(req,res)=>{
     //API호출결과 반환하기
     res.json(apiResult);
 });
+
+
+//현재 로그인 사용자 정보를 JWT토큰값을 기반으로 조회하여 반환하는 라우팅메소드
+//http://localhost:3000/api/member/profile
+router.get('/profile',async(req,res)=>{
+
+    //api호출 기본 결과 데이터 구조정의 
+    var apiResult = {
+        code:200,
+        data:null,
+        result:""
+    };
+
+    try{
+        //STEP1) HTTP Header를 통해 전달된 jwt 토큰값을 추출한다. 
+        const  token = req.headers.authorization.split('Bearer ')[1];
+
+        console.log("클라이언트에서 전달된 현재 로그인한 사용자의 jwt토큰값:",token);
+
+        //STEP2) 로그인한 사용자의 JWT토큰내에 로그인 사용자 JSON데이터를 추출한다.
+        //jwt.verify('토큰값','토큰발급시 사용한 인증키값');
+        var loginUserData = jwt.verify(token,process.env.JWT_SECRET);
+
+        //STEP3)JWT토큰내 사용자 메일주소를 이용해 DB에서 사용자 전체 정보를 조회해 반환한다.
+        var profileData = await db.Member.findOne({where:{member_id:loginUserData.member_id}});
+        
+        profileData.member_password = "";
+
+        apiResult.code = 200;
+        apiResult.data = profileData;
+        apiResult.result="Ok";
+
+    }catch(Err){
+        apiResult.code = 500;
+        apiResult.data = null;
+        apiResult.result="Failed";
+    }
+
+    res.json(apiResult);
+});
+
+
+
+
+
+
 
 
 //라우터 객체를 반드시 외부로 노출한다.
